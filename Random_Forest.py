@@ -1,23 +1,120 @@
-# Random Forest Algorithm on Sonar Dataset
-from random import seed, random
+from random import seed
 from random import randrange
 from csv import reader
 from math import sqrt
 import pandas as pd
+import numpy as np
 import random
+from scipy.spatial.distance import cdist
+from sklearn.cluster import KMeans
+import matplotlib.pylab as plt
 
 #Random Sampling
 def random_sampling(data_frame, fraction):
     data = data_frame.sample(n = (int)(len(data_frame)*fraction))
     return data
 
+# function createFile
+# To write the stratified sampled dataframe to csv
+# Attributes
+# random_data- the dataframe which has to be written
+# file_name- name of the csv file
+# 
+# Return -None
+# Writes the dataframe to specifiedcsv
+
 def createFile(random_data,file_name):
-    data_directory = "F:/SBU/Sem2/ESE-588 Pattern Recognition/Random_Forest/"
-    file_name = data_directory + file_name
-    # data = data.append(random_data,ignore_index=True)
     random_data.to_csv(file_name,index=False,header = False)
 
-# Load a CSV file
+# function createClusters
+# To randomly sample the clusters formed by using kmeans
+# Attributes
+# dataFrame- the dataframe from which the dictionary has to be formed
+# 
+# Return -
+# A dictionary where key represents cluster number and value represents the indices of the
+# rows in original dataframe
+
+def createClusters(dataFrame):
+	model=KMeans(n_clusters=5)
+	model.fit(dataFrame)
+	clusassign=model.predict(dataFrame) 
+	lables = model.labels_
+	return lables
+
+# function groupClusters
+# To group the clusters to form a dictionary
+# Attributes
+# dataFrame- the dataframe from which the dictionary has to be formed
+# 
+# Return -
+# A dictionary where key represents cluster number and value represents the indices of the
+# rows in original dataframe
+
+def groupClusters(dataFrame):
+	my_dict = {}
+	for (ind,elem) in enumerate(createClusters(dataFrame)):
+		if elem in my_dict:
+			my_dict[elem].append(ind)
+		else:
+			my_dict.update({elem:[ind]})
+	return my_dict	
+
+# function sampleClusters
+# To randomly sample the clusters formed by using kmeans
+# Attributes
+# dataFrame- the dataframe which has to be sampled
+# 
+# Return -
+# A randomly sampled dataframe 
+
+def sampleClusters(dataFrame):
+	cluster_sample={} 
+	df = pd.DataFrame()
+	
+	for i in range(0,5):
+		cluster_sample[i]= random_sample(groupClusters(dataFrame)[i])
+		for k in cluster_sample[i]:
+			df=df.append(dataFrame.iloc[[k]],ignore_index=True)
+	return df
+
+# function findK
+# To find the optimum number of clusters to be formed
+# Attributes
+# dataset- the dataframe which has to be analyzed
+# 
+# Return - none
+# 	Plots an elbow plot which helps in identification of cluster size 
+
+def findK(dataset):
+
+	kValues=range(1,8) 
+	meandist=[]
+
+	for k in kValues:  
+	    model=KMeans(n_clusters=k) 
+	    model.fit(dataset)   
+	    clusassign=model.predict(dataset) 
+	    meandist.append(sum(np.min(cdist(dataset, model.cluster_centers_, 'euclidean'), axis=1))
+	    / dataset.shape[0])
+
+	plt.plot(kValues, meandist)
+	plt.xlabel('Number of clusters') 
+	plt.ylabel('Average distance')
+	plt.title('Selecting k with the Elbow Method')
+	plt.show() 
+
+def random_sample(dataset):
+	return random.sample(dataset,int(len(dataset)*0.4))	   
+
+# function load_csv
+# To load the csv file as a dataset
+# Attributes
+# filename- name of the file to be loaded
+# 
+# Return
+# dataset as a list
+
 def load_csv(filename):
 	dataset = list()
 	with open(filename, 'r') as file:
@@ -28,42 +125,76 @@ def load_csv(filename):
 			dataset.append(row)
 	return dataset
 
-# Convert string column to float
-def str_column_to_float(dataset, column):
+# function conv_String_to_float
+# To convert the values of all the columns except the last to float from string
+# Attributes
+# dataset-the data read from the csv file
+# column- the column that has to be converted
+# 
+# Return
+# dataset as a list
+
+def conv_String_to_float(dataset, column):
 	for row in dataset:
 		row[column] = float(row[column].strip())
 
-# Convert string column to integer
-def str_column_to_int(dataset, column):
+# function conv_str_to_int
+# To convert the values of last column which represents the class number from string 
+# to integers
+# Attributes
+# dataset-the data read from the csv file
+# column- the column that has to be converted
+# 
+# Return- 
+# dictionary- returns a  
+#
+def conv_str_to_int(dataset, column):
 	class_values = [row[column] for row in dataset]
 	unique = set(class_values)
-	lookup = dict()
+	dictionary = dict()
 	for i, value in enumerate(unique):
-		lookup[value] = i
+		dictionary[value] = i
 	for row in dataset:
-		row[column] = lookup[row[column]]
-	return lookup
+		row[column] = dictionary[row[column]]
+	print("lookup:",lookup)	
+	return dictionary
 
-# Split a dataset into k folds
-def cross_validation_split(dataset, n_folds):
-	dataset_split = list()
+# function conv_str_to_int
+# To convert the values of last column which represents the class number from string 
+# to integers
+# Attributes
+# dataset-the data read from the csv file
+# column- the column that has to be converted
+# 
+# Return- 
+# dictionary- returns a  
+#
+def cross_validation_split(dataset, folds_count):
+
+	split_dataFrame = list()
+
 	dataset_copy = list(dataset)
-	fold_size = int(len(dataset) / n_folds)
-	for i in range(n_folds):
-		fold = list()
-		while len(fold) < fold_size:
+
+	fold_length = int(len(dataset) / folds_count)
+
+	for i in range(folds_count):
+		group_data = list()
+		while len(group_data) < fold_length:
 			index = randrange(len(dataset_copy))
-			fold.append(dataset_copy.pop(index))
-		dataset_split.append(fold)
-	return dataset_split
+			group_data.append(dataset_copy.pop(index))
+		split_dataFrame.append(group_data)
+	return split_dataFrame
 
 # Calculate accuracy percentage
-def accuracy_metric(actual, predicted):
-	correct = 0
-	for i in range(len(actual)):
-		if actual[i] == predicted[i]:
-			correct += 1
-	return correct / float(len(actual)) * 100.0
+def calc_accuracy(actualValue, predictedValue):
+
+	correct_Predictions = 0
+
+	for i in range(len(actualValue)):
+		if actualValue[i] == predictedValue[i]:
+			correct_Predictions += 1
+
+	return correct_Predictions / float(len(actualValue)) * 100.0
 
 # Evaluate an algorithm using a cross validation split
 def evaluate_algorithm(dataset, algorithm, n_folds, *args):
@@ -80,7 +211,7 @@ def evaluate_algorithm(dataset, algorithm, n_folds, *args):
 			row_copy[-1] = None
 		predicted = algorithm(train_set, test_set, *args)
 		actual = [row[-1] for row in fold]
-		accuracy = accuracy_metric(actual, predicted)
+		accuracy = calc_accuracy(actual, predicted)
 		scores.append(accuracy)
 	return scores
 
@@ -95,7 +226,7 @@ def test_split(index, value, dataset):
 	return left, right
 
 # Calculate the Gini index for a split dataset
-def gini_index(groups, class_values):
+def calc_gini_index(groups, class_values):
 	gini = 0.0
 	for class_value in class_values:
 		for group in groups:
@@ -118,7 +249,7 @@ def get_split(dataset, n_features):
 	for index in features:
 		for row in dataset:
 			groups = test_split(index, row[index], dataset)
-			gini = gini_index(groups, class_values)
+			gini = calc_gini_index(groups, class_values)
 			if gini < b_score:
 				b_index, b_value, b_score, b_groups = index, row[index], gini, groups
 	return {'index':b_index, 'value':b_value, 'groups':b_groups}
@@ -200,17 +331,19 @@ def random_forest(train, test, max_depth, min_size, sample_size, n_trees, n_feat
 seed(1)
 # load and prepare data
 df = pd.read_csv("Dataset.csv",header = None)
-print df
-random_sample = random_sampling(df, 0.2)
-print random_sample
-createFile(random_sample, "data_random.csv")
-filename = 'data_random.csv'
+# random_sample = random_sampling(df, 0.2)
+
+createFile(sampleClusters(df), "data_Stratified.csv")
+filename = 'data_Stratified.csv'
 dataset = load_csv(filename)
-# convert string attributes to integers
+
+# convert string attributes to float
 for i in range(0, len(dataset[0])-1):
-	str_column_to_float(dataset, i)
+	conv_String_to_float(dataset, i)
+
 # convert class column to integers
-str_column_to_int(dataset, len(dataset[0])-1)
+conv_str_to_int(dataset, len(dataset[0])-1)
+
 # evaluate algorithm
 n_folds = 5
 max_depth = 10
