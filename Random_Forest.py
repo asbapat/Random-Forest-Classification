@@ -8,6 +8,11 @@ import random
 from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 import matplotlib.pylab as plt
+from datetime import datetime
+from sklearn import preprocessing
+from scipy.cluster.vq import kmeans,vq
+import bokeh.plotting
+from bokeh.plotting import figure
 
 #Random Sampling
 def random_sampling(data_frame, fraction):
@@ -71,12 +76,46 @@ def groupClusters(dataFrame):
 def sampleClusters(dataFrame):
 	cluster_sample={} 
 	df = pd.DataFrame()
+
+	y = dataFrame.iloc[:,-1];
+	# print("last column:",dataFrame.columns[-1]);
+	X = dataFrame.ix[:,dataFrame.columns != dataFrame.columns[-1]];
+
+	colNo=[]
+
+	for i in range(len(X.columns)):
+		colNo.append(i);
+
+	X_std = preprocessing.StandardScaler().fit(X[colNo]).transform(X[colNo])
+
+	findK(X_std)
+
+	showClusters(X_std)
 	
 	for i in range(0,5):
 		cluster_sample[i]= random_sample(groupClusters(dataFrame)[i])
 		for k in cluster_sample[i]:
 			df=df.append(dataFrame.iloc[[k]],ignore_index=True)
 	return df
+
+def showClusters(dataset):
+	bokeh.plotting.output_notebook()
+	model=KMeans(n_clusters=k) 
+	model.fit(dataset)
+	i = 0
+
+	for sample in dataset:
+		if model.labels_[i] == 0:
+			plot.circle(x=sample[0], y=sample[1], size=15, color="red")
+		if model.labels_[i] == 1:
+
+		   plot.circle(x=sample[0], y=sample[1], size=15, color="blue")
+
+		if model.labels_[i] == 2:
+
+		   plot.circle(x=sample[0], y=sample[1], size=15, color="purple")	
+
+		i+1	
 
 # function findK
 # To find the optimum number of clusters to be formed
@@ -134,9 +173,9 @@ def load_csv(filename):
 # Return
 # dataset as a list
 
-def conv_String_to_float(dataset, column):
-	for row in dataset:
-		row[column] = float(row[column].strip())
+# def conv_String_to_float(dataset, column):
+# 	for row in dataset:
+# 		row[column] = float(row[column].strip())
 
 # function conv_str_to_int
 # To convert the values of last column which represents the class number from string 
@@ -156,7 +195,6 @@ def conv_str_to_int(dataset, column):
 		dictionary[value] = i
 	for row in dataset:
 		row[column] = dictionary[row[column]]
-	print("lookup:",lookup)	
 	return dictionary
 
 # function conv_str_to_int
@@ -185,7 +223,17 @@ def cross_validation_split(dataset, folds_count):
 		split_dataFrame.append(group_data)
 	return split_dataFrame
 
-# Calculate accuracy percentage
+# function calc_accuracy
+# To calculatethe accuracy of the algorithm  
+# 
+# Attributes
+# actualValue-The actual outcome which identifies the class
+# predictedValue- the value predicted by the decision tree algorithm
+# 
+# Return- 
+# Accuracy percentage of the algorithm
+#
+
 def calc_accuracy(actualValue, predictedValue):
 
 	correct_Predictions = 0
@@ -196,8 +244,7 @@ def calc_accuracy(actualValue, predictedValue):
 
 	return correct_Predictions / float(len(actualValue)) * 100.0
 
-# Evaluate an algorithm using a cross validation split
-def evaluate_algorithm(dataset, algorithm, n_folds, *args):
+def evaluate_algorithm(dataset, n_folds, *args):
 	folds = cross_validation_split(dataset, n_folds)
 	scores = list()
 	for fold in folds:
@@ -209,7 +256,7 @@ def evaluate_algorithm(dataset, algorithm, n_folds, *args):
 			row_copy = list(row)
 			test_set.append(row_copy)
 			row_copy[-1] = None
-		predicted = algorithm(train_set, test_set, *args)
+		predicted = random_forest(train_set, test_set, *args)
 		actual = [row[-1] for row in fold]
 		accuracy = calc_accuracy(actual, predicted)
 		scores.append(accuracy)
@@ -237,10 +284,9 @@ def calc_gini_index(groups, class_values):
 			gini += (proportion * (1.0 - proportion))
 	return gini
 
-# Select the best split point for a dataset
 def get_split(dataset, n_features):
 	class_values = list(set(row[-1] for row in dataset))
-	b_index, b_value, b_score, b_groups = 999, 999, 999, None
+	b_index, b_value, b_score, b_groups = 10000, 10000, 10000, None
 	features = list()
 	while len(features) < n_features:
 		index = randrange(len(dataset[0])-1)
@@ -259,38 +305,35 @@ def to_terminal(group):
 	outcomes = [row[-1] for row in group]
 	return max(set(outcomes), key=outcomes.count)
 
-# Create child splits for a node or make terminal
 def split(node, max_depth, min_size, n_features, depth):
 	left, right = node['groups']
 	del(node['groups'])
-	# check for a no split
+
 	if not left or not right:
 		node['left'] = node['right'] = to_terminal(left + right)
 		return
-	# check for max depth
+
 	if depth >= max_depth:
 		node['left'], node['right'] = to_terminal(left), to_terminal(right)
 		return
-	# process left child
+
 	if len(left) <= min_size:
 		node['left'] = to_terminal(left)
 	else:
 		node['left'] = get_split(left, n_features)
 		split(node['left'], max_depth, min_size, n_features, depth+1)
-	# process right child
+
 	if len(right) <= min_size:
 		node['right'] = to_terminal(right)
 	else:
 		node['right'] = get_split(right, n_features)
 		split(node['right'], max_depth, min_size, n_features, depth+1)
 
-# Build a decision tree
 def build_tree(train, max_depth, min_size, n_features):
 	root = get_split(train, n_features)
 	split(root, max_depth, min_size, n_features, 1)
 	return root
 
-# Make a prediction with a decision tree
 def predict(node, row):
 	if row[node['index']] < node['value']:
 		if isinstance(node['left'], dict):
@@ -303,7 +346,6 @@ def predict(node, row):
 		else:
 			return node['right']
 
-# Create a random subsample from the dataset with replacement
 def subsample(dataset, ratio):
 	sample = list()
 	n_sample = round(len(dataset) * ratio)
@@ -312,12 +354,10 @@ def subsample(dataset, ratio):
 		sample.append(dataset[index])
 	return sample
 
-# Make a prediction with a list of bagged trees
 def bagging_predict(trees, row):
 	predictions = [predict(tree, row) for tree in trees]
 	return max(set(predictions), key=predictions.count)
 
-# Random Forest Algorithm
 def random_forest(train, test, max_depth, min_size, sample_size, n_trees, n_features):
 	trees = list()
 	for i in range(n_trees):
@@ -327,31 +367,26 @@ def random_forest(train, test, max_depth, min_size, sample_size, n_trees, n_feat
 	predictions = [bagging_predict(trees, row) for row in test]
 	return(predictions)
 
-# Test the random forest algorithm
-seed(1)
-# load and prepare data
+seed(datetime.now())
+
 df = pd.read_csv("Dataset.csv",header = None)
+
 # random_sample = random_sampling(df, 0.2)
 
 createFile(sampleClusters(df), "data_Stratified.csv")
 filename = 'data_Stratified.csv'
 dataset = load_csv(filename)
 
-# convert string attributes to float
-for i in range(0, len(dataset[0])-1):
-	conv_String_to_float(dataset, i)
 
-# convert class column to integers
 conv_str_to_int(dataset, len(dataset[0])-1)
 
-# evaluate algorithm
 n_folds = 5
 max_depth = 10
 min_size = 1
 sample_size = 1.0
 n_features = int(sqrt(len(dataset[0])-1))
-for n_trees in [1]:
-	scores = evaluate_algorithm(dataset, random_forest, n_folds, max_depth, min_size, sample_size, n_trees, n_features)
+for n_trees in [2,4]:
+	scores = evaluate_algorithm(dataset, n_folds, max_depth, min_size, sample_size, n_trees, n_features)
 	print('Trees: %d' % n_trees)
 	print('Scores: %s' % scores)
 	print('Mean Accuracy: %.3f%%' % (sum(scores)/float(len(scores))))
